@@ -1,2 +1,5 @@
 # serde_var_export
-PHP var_export() support for Serde.
+
+PHP function [`var_export()`](https://www.php.net/manual/en/function.var-export) support for [Serde](https://crates.io/crates/serde).
+
+

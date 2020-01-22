@@ -1,0 +1,15 @@
+[package]
+name = "serde_var_export"
+version = "0.1.0"
+authors = ["jmjoy <918734043@qq.com>"]
+edition = "2018"
+description = "PHP function var_export() support for Serde."
+repository = "https://github.com/jmjoy/serde_var_export"
+documentation = "https://docs.rs/serde_var_export"
+license = "Unlicense"
+readme = "README.md"
+keywords = ["serde", "php", "var_export"]
+
+[dependencies]
+serde = "1.0.104"
+thiserror = "1.0.9"
