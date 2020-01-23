@@ -9,8 +9,10 @@ documentation = "https://docs.rs/serde_var_export"
 license = "Unlicense"
 readme = "README.md"
 keywords = ["serde", "php", "var_export"]
+exclude = [".gitignore", ".github"]
 
 [dependencies]
+dtoa = "0.4.4"
 itoa = "0.4.4"
 serde = "1.0.104"
 thiserror = "1.0.9"
