@@ -11,5 +11,9 @@ readme = "README.md"
 keywords = ["serde", "php", "var_export"]
 
 [dependencies]
+itoa = "0.4.4"
 serde = "1.0.104"
 thiserror = "1.0.9"
+
+[dev-dependencies]
+serde_derive = "1.0.104"
