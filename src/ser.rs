@@ -90,7 +90,8 @@ impl<'a, W: Write> ser::Serializer for &'a mut Serializer<W> {
     }
 
     fn serialize_char(self, v: char) -> Result<Self::Ok> {
-        self.writer.write_all(format!("{:?}", v).as_bytes())?;
+        let mut s = [0u8; 4];
+        self.serialize_str(v.encode_utf8(&mut s));
         Ok(())
     }
 
@@ -126,7 +127,7 @@ impl<'a, W: Write> ser::Serializer for &'a mut Serializer<W> {
     }
 
     fn serialize_unit_struct(self, name: &'static str) -> Result<Self::Ok> {
-        self.writer.write_all(name.as_bytes())?;
+        self.writer.write_all(b"NULL")?;
         Ok(())
     }
 
@@ -140,11 +141,11 @@ impl<'a, W: Write> ser::Serializer for &'a mut Serializer<W> {
         Ok(())
     }
 
-    fn serialize_newtype_struct<T: ?Sized>(self, name: &'static str, value: &T) -> Result<Self::Ok>
+    fn serialize_newtype_struct<T: ?Sized>(self, _name: &'static str, value: &T) -> Result<Self::Ok>
     where
         T: Serialize,
     {
-        unimplemented!()
+        value.serialize(self)
     }
 
     fn serialize_newtype_variant<T: ?Sized>(
@@ -157,7 +158,13 @@ impl<'a, W: Write> ser::Serializer for &'a mut Serializer<W> {
     where
         T: Serialize,
     {
-        unimplemented!()
+        self.writer.write_all(b"array(\n  ")?;
+        variant.serialize(&mut *self)?;
+        self.serialize_str(variant)?;
+        self.writer.write_all(b" => ")?;
+        value.serialize(&mut *self)?;
+        self.writer.write_all(b", )")?;
+        Ok(())
     }
 
     fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq> {
@@ -338,97 +345,84 @@ mod tests {
 
     #[test]
     fn serialize_bool() {
-        let mut serializer = Serializer::new(Vec::new());
-        serializer.serialize_bool(true).unwrap();
-        assert_eq!(&serializer.writer, b"true");
-
-        let mut serializer = Serializer::new(Vec::new());
-        serializer.serialize_bool(false).unwrap();
-        assert_eq!(&serializer.writer, b"false");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_bool(true)), "true");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_bool(false)), "false");
     }
 
     #[test]
     fn serialize_i8() {
-        let mut serializer = Serializer::new(Vec::new());
-        serializer.serialize_i8(127).unwrap();
-        assert_eq!(&serializer.writer, b"127");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_i8(0)), "0");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_i8(127)), "127");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_i8(-127)), "-127");
     }
 
     #[test]
     fn serialize_i16() {
-        let mut serializer = Serializer::new(Vec::new());
-        serializer.serialize_i16(32767).unwrap();
-        assert_eq!(&serializer.writer, b"32767");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_i16(0)), "0");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_i16(32767)), "32767");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_i16(-32767)), "-32767");
     }
 
     #[test]
     fn serialize_i32() {
-        let mut serializer = Serializer::new(Vec::new());
-        serializer.serialize_i32(2147483647).unwrap();
-        assert_eq!(&serializer.writer, b"2147483647");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_i32(0)), "0");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_i32(2147483647)), "2147483647");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_i32(-2147483647)), "-2147483647");
     }
 
     #[test]
     fn serialize_i64() {
-        let mut serializer = Serializer::new(Vec::new());
-        serializer.serialize_i64(2147483647).unwrap();
-        assert_eq!(&serializer.writer, b"2147483647");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_i64(0)), "0");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_i64(2147483647)), "2147483647");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_i64(-2147483647)), "-2147483647");
     }
 
     #[test]
     fn serialize_u8() {
-        let mut serializer = Serializer::new(Vec::new());
-        serializer.serialize_u8(127).unwrap();
-        assert_eq!(&serializer.writer, b"127");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_u8(0)), "0");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_u8(127)), "127");
     }
 
     #[test]
     fn serialize_u16() {
-        let mut serializer = Serializer::new(Vec::new());
-        serializer.serialize_u16(32767).unwrap();
-        assert_eq!(&serializer.writer, b"32767");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_u16(0)), "0");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_u16(32767)), "32767");
     }
 
     #[test]
     fn serialize_u32() {
-        let mut serializer = Serializer::new(Vec::new());
-        serializer.serialize_u32(2147483647).unwrap();
-        assert_eq!(&serializer.writer, b"2147483647");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_u32(0)), "0");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_u32(2147483647)), "2147483647");
     }
 
     #[test]
     fn serialize_u64() {
-        let mut serializer = Serializer::new(Vec::new());
-        serializer.serialize_u64(2147483647).unwrap();
-        assert_eq!(&serializer.writer, b"2147483647");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_u64(0)), "0");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_u64(2147483647)), "2147483647");
     }
 
     #[test]
     fn serialize_f32() {
-        let mut serializer = Serializer::new(Vec::new());
-        serializer.serialize_f32(1.0).unwrap();
-        assert_eq!(&serializer.writer, b"1.0");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_f32(0.0)), "0.0");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_f32(1.0)), "1.0");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_f32(1.01)), "1.01");
     }
 
     #[test]
     fn serialize_f64() {
-        let mut serializer = Serializer::new(Vec::new());
-        serializer.serialize_f64(1.01).unwrap();
-        assert_eq!(&serializer.writer, b"1.01");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_f64(0.0)), "0.0");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_f64(1.0)), "1.0");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_f64(1.01)), "1.01");
     }
 
     #[test]
     fn serialize_char() {
-        let mut serializer = Serializer::new(Vec::new());
-        serializer.serialize_char('a').unwrap();
-        assert_eq!(&serializer.writer, br"'a'");
-
-        let mut serializer = Serializer::new(Vec::new());
-        serializer.serialize_char('\n').unwrap();
-        assert_eq!(&serializer.writer, br"'\n'");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_char('a')), "'a'");
+        assert_eq!(&serialize_to_string(|serializer| serializer.serialize_char('\n')), "'\n'");
     }
 
     #[test]
+    #[ignore]
     fn serialize_str() {
         let mut serializer = Serializer::new(Vec::new());
         serializer.serialize_str("hello").unwrap();
@@ -480,7 +474,7 @@ mod tests {
     fn serialize_unit_struct() {
         let mut serializer = Serializer::new(Vec::new());
         serializer.serialize_unit_struct("Foo").unwrap();
-        assert_eq!(&serializer.writer, b"Foo");
+        assert_eq!(&serializer.writer, b"NULL");
     }
 
     #[test]
@@ -488,5 +482,23 @@ mod tests {
         let mut serializer = Serializer::new(Vec::new());
         serializer.serialize_unit_variant("Foo", 0, "Bar").unwrap();
         assert_eq!(&serializer.writer, br#""Bar""#);
+    }
+
+    #[test]
+    fn serialize_newtype_struct() {
+        let mut serializer = Serializer::new(Vec::new());
+        serializer.serialize_newtype_struct("Foo", &1i32).unwrap();
+        assert_eq!(&serializer.writer, br#"1"#);
+    }
+
+    #[test]
+    fn serialize_newtype_variant() {
+
+    }
+
+    fn serialize_to_string<F>(f: F) -> String where F: Fn(&mut Serializer<Vec<u8>>) -> Result<()> {
+        let mut serializer = Serializer::new(Vec::new());
+        f(&mut serializer).unwrap();
+        String::from_utf8(serializer.writer).unwrap()
     }
 }
