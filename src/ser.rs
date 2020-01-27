@@ -1,8 +1,18 @@
 use serde::{ser, Serialize};
 
 use crate::error::{Error, Result};
-use std::fmt::Display;
 use std::io::Write;
+
+const INDENT: &'static [u8] = b"  ";
+
+pub fn to_string<T>(value: &T) -> Result<String>
+where
+    T: Serialize,
+{
+    let mut serializer = Serializer::new(Vec::new());
+    value.serialize(&mut serializer)?;
+    Ok(String::from_utf8(serializer.writer)?)
+}
 
 #[doc(hidden)]
 pub struct SeqSerializer<'a, W: Write> {
@@ -24,21 +34,47 @@ impl<'a, W: Write> SeqSerializer<'a, W> {
 
 pub struct Serializer<W: Write> {
     writer: W,
+    current_ident: usize,
 }
 
 impl<W: Write> Serializer<W> {
+    #[inline]
     fn new(writer: W) -> Self {
-        Self { writer }
+        Self {
+            writer,
+            current_ident: 0,
+        }
     }
-}
 
-pub fn to_string<T>(value: &T) -> Result<String>
-where
-    T: Serialize,
-{
-    let mut serializer = Serializer::new(Vec::new());
-    value.serialize(&mut serializer)?;
-    Ok(String::from_utf8(serializer.writer)?)
+    fn write_begin_array(&mut self) -> Result<()> {
+        if self.current_ident > 0 {
+            self.writer.write_all(b"\n")?;
+            self.write_ident()?;
+        }
+        self.writer.write_all(b"array(\n")?;
+        self.current_ident += 1;
+        Ok(())
+    }
+
+    fn write_end_array(&mut self) -> Result<()> {
+        self.current_ident -= 1;
+        self.write_ident()?;
+        self.writer.write_all(b")")?;
+        Ok(())
+    }
+
+    #[inline]
+    fn write_ident(&mut self) -> Result<()> {
+        for _ in 0..self.current_ident {
+            self.writer.write_all(INDENT)?;
+        }
+        Ok(())
+    }
+
+    fn write_map_symbol(&mut self) -> Result<()> {
+        self.writer.write_all(b" => ")?;
+        Ok(())
+    }
 }
 
 impl<'a, W: Write> ser::Serializer for &'a mut Serializer<W> {
@@ -109,7 +145,7 @@ impl<'a, W: Write> ser::Serializer for &'a mut Serializer<W> {
 
     fn serialize_char(self, v: char) -> Result<Self::Ok> {
         let mut s = [0u8; 4];
-        self.serialize_str(v.encode_utf8(&mut s));
+        self.serialize_str(v.encode_utf8(&mut s))?;
         Ok(())
     }
 
@@ -153,7 +189,7 @@ impl<'a, W: Write> ser::Serializer for &'a mut Serializer<W> {
         Ok(())
     }
 
-    fn serialize_unit_struct(self, name: &'static str) -> Result<Self::Ok> {
+    fn serialize_unit_struct(self, _name: &'static str) -> Result<Self::Ok> {
         self.writer.write_all(b"NULL")?;
         Ok(())
     }
@@ -177,24 +213,26 @@ impl<'a, W: Write> ser::Serializer for &'a mut Serializer<W> {
 
     fn serialize_newtype_variant<T: ?Sized>(
         self,
-        name: &'static str,
-        variant_index: u32,
+        _name: &'static str,
+        _variant_index: u32,
         variant: &'static str,
         value: &T,
     ) -> Result<Self::Ok>
     where
         T: Serialize,
     {
-        self.writer.write_all(b"array(\n  ")?;
+        self.write_begin_array()?;
+        self.write_ident()?;
         variant.serialize(&mut *self)?;
-        self.writer.write_all(b" => ")?;
+        self.write_map_symbol()?;
         value.serialize(&mut *self)?;
-        self.writer.write_all(b",\n)")?;
+        self.writer.write_all(b",\n")?;
+        self.write_end_array()?;
         Ok(())
     }
 
     fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq> {
-        self.writer.write_all(b"array(\n")?;
+        self.write_begin_array()?;
         Ok(SeqSerializer::new(self))
     }
 
@@ -217,35 +255,36 @@ impl<'a, W: Write> ser::Serializer for &'a mut Serializer<W> {
         variant: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeTupleVariant> {
-        self.writer.write_all(b"array(\n  ")?;
+        self.write_begin_array()?;
+        self.write_ident()?;
         variant.serialize(&mut *self)?;
-        self.writer.write_all(b" => array(\n")?;
+        self.writer.write_all(b" => ")?;
+        self.write_begin_array()?;
         Ok(SeqSerializer::new(self))
     }
 
-    fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap> {
-        unimplemented!()
+    fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap> {
+        self.write_begin_array()?;
+        Ok(self)
     }
 
-    fn serialize_struct(self, name: &'static str, len: usize) -> Result<Self::SerializeStruct> {
-        unimplemented!()
+    fn serialize_struct(self, _name: &'static str, len: usize) -> Result<Self::SerializeStruct> {
+        self.serialize_map(Some(len))
     }
 
     fn serialize_struct_variant(
         self,
-        name: &'static str,
-        variant_index: u32,
+        _name: &'static str,
+        _variant_index: u32,
         variant: &'static str,
-        len: usize,
+        _len: usize,
     ) -> Result<Self::SerializeStructVariant> {
-        unimplemented!()
-    }
-
-    fn collect_str<T: ?Sized>(self, value: &T) -> Result<Self::Ok>
-    where
-        T: Display,
-    {
-        unimplemented!()
+        self.write_begin_array()?;
+        self.write_ident()?;
+        variant.serialize(&mut *self)?;
+        self.writer.write_all(b" => ")?;
+        self.write_begin_array()?;
+        Ok(self)
     }
 }
 
@@ -257,17 +296,17 @@ impl<'a, W: Write> ser::SerializeSeq for SeqSerializer<'a, W> {
     where
         T: Serialize,
     {
-        self.as_mut_writer().write_all(b"  ")?;
+        self.ser.write_ident()?;
         (self.idx as u64).serialize(&mut *self.ser)?;
-        self.as_mut_writer().write_all(b" => ")?;
+        self.ser.write_map_symbol()?;
         value.serialize(&mut *self.ser)?;
         self.as_mut_writer().write_all(b",\n")?;
         self.idx += 1;
         Ok(())
     }
 
-    fn end(mut self) -> Result<Self::Ok> {
-        self.as_mut_writer().write_all(b")")?;
+    fn end(self) -> Result<Self::Ok> {
+        self.ser.write_end_array()?;
         Ok(())
     }
 }
@@ -316,7 +355,9 @@ impl<'a, W: Write> ser::SerializeTupleVariant for SeqSerializer<'a, W> {
     }
 
     fn end(mut self) -> Result<Self::Ok> {
-        self.as_mut_writer().write_all(b"))")?;
+        self.ser.write_end_array()?;
+        self.as_mut_writer().write_all(b",\n")?;
+        self.ser.write_end_array()?;
         Ok(())
     }
 }
@@ -329,18 +370,24 @@ impl<'a, W: Write> ser::SerializeMap for &'a mut Serializer<W> {
     where
         T: Serialize,
     {
-        unimplemented!()
+        self.write_ident()?;
+        key.serialize(&mut **self)?;
+        Ok(())
     }
 
     fn serialize_value<T: ?Sized>(&mut self, value: &T) -> Result<()>
     where
         T: Serialize,
     {
-        unimplemented!()
+        self.write_map_symbol()?;
+        value.serialize(&mut **self)?;
+        self.writer.write_all(b",\n")?;
+        Ok(())
     }
 
     fn end(self) -> Result<Self::Ok> {
-        unimplemented!()
+        self.write_end_array()?;
+        Ok(())
     }
 }
 
@@ -352,11 +399,13 @@ impl<'a, W: Write> ser::SerializeStruct for &'a mut Serializer<W> {
     where
         T: Serialize,
     {
-        unimplemented!()
+        ser::SerializeMap::serialize_key(self, key)?;
+        ser::SerializeMap::serialize_value(self, value)?;
+        Ok(())
     }
 
     fn end(self) -> Result<Self::Ok> {
-        unimplemented!()
+        ser::SerializeMap::end(self)
     }
 }
 
@@ -368,11 +417,14 @@ impl<'a, W: Write> ser::SerializeStructVariant for &'a mut Serializer<W> {
     where
         T: Serialize,
     {
-        unimplemented!()
+        ser::SerializeStruct::serialize_field(self, key, value)
     }
 
     fn end(self) -> Result<Self::Ok> {
-        unimplemented!()
+        self.write_end_array()?;
+        self.writer.write_all(b",\n")?;
+        self.write_end_array()?;
+        Ok(())
     }
 }
 
@@ -638,14 +690,18 @@ mod tests {
     #[test]
     fn serialize_newtype_variant() {
         assert_eq!(
-            &serialize_to_string(|serializer| serializer.serialize_newtype_variant("Foo", 0, "Bar", &1i32)),
+            &serialize_to_string(
+                |serializer| serializer.serialize_newtype_variant("Foo", 0, "Bar", &1i32)
+            ),
             "array(
   'Bar' => 1,
 )"
         );
 
         assert_eq!(
-            &serialize_to_string(|serializer| serializer.serialize_newtype_variant("Foo", 0, "Bar", "bar")),
+            &serialize_to_string(
+                |serializer| serializer.serialize_newtype_variant("Foo", 0, "Bar", "bar")
+            ),
             "array(
   'Bar' => 'bar',
 )"
@@ -656,6 +712,7 @@ mod tests {
     fn serialize_seq() {
         let mut serializer = Serializer::new(Vec::new());
         let mut seq_serializer = serializer.serialize_seq(None).unwrap();
+
         assert_eq!(seq_serializer.as_mut_writer(), b"array(\n");
         assert_eq!(seq_serializer.idx, 0);
 
@@ -668,6 +725,7 @@ mod tests {
     fn serialize_tuple() {
         let mut serializer = Serializer::new(Vec::new());
         let mut tuple_serializer = serializer.serialize_tuple(0).unwrap();
+
         assert_eq!(tuple_serializer.as_mut_writer(), b"array(\n");
         assert_eq!(tuple_serializer.idx, 0);
 
@@ -680,6 +738,7 @@ mod tests {
     fn serialize_tuple_struct() {
         let mut serializer = Serializer::new(Vec::new());
         let mut tuple_struct_serializer = serializer.serialize_tuple_struct("Foo", 0).unwrap();
+
         assert_eq!(tuple_struct_serializer.as_mut_writer(), b"array(\n");
         assert_eq!(tuple_struct_serializer.idx, 0);
 
@@ -689,10 +748,21 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn serialize_tuple_variant() {
         let mut serializer = Serializer::new(Vec::new());
-        serializer.serialize_tuple_variant("Foo", 0, "Bar", 0);
+        let mut tuple_variant_serializer = serializer
+            .serialize_tuple_variant("Foo", 0, "Bar", 0)
+            .unwrap();
+
+        assert_eq!(
+            std::str::from_utf8(tuple_variant_serializer.as_mut_writer()).unwrap(),
+            "array(\n  'Bar' => \n  array(\n"
+        );
+        assert_eq!(tuple_variant_serializer.idx, 0);
+
+        let ptr = tuple_variant_serializer.ser as *const Serializer<Vec<u8>>;
+        drop(tuple_variant_serializer);
+        assert_eq!(ptr, &serializer as *const Serializer<Vec<u8>>);
     }
 
     fn serialize_to_string<F>(f: F) -> String

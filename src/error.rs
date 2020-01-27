@@ -19,6 +19,7 @@ pub enum Error {
 }
 
 impl Error {
+    #[cfg(test)]
     fn to_message(&self) -> Option<&str> {
         if let Error::Message(msg) = &self {
             Some(msg)
