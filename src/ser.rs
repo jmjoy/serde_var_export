@@ -14,6 +14,25 @@ where
     Ok(String::from_utf8(serializer.writer)?)
 }
 
+pub fn to_vec<T: ?Sized>(value: &T) -> Result<Vec<u8>>
+where
+    T: Serialize,
+{
+    let mut serializer = Serializer::new(Vec::new());
+    value.serialize(&mut serializer)?;
+    Ok(serializer.writer)
+}
+
+pub fn to_writer<W, T: ?Sized>(writer: W, value: &T) -> Result<()>
+where
+    W: Write,
+    T: Serialize,
+{
+    let mut serializer = Serializer::new(writer);
+    value.serialize(&mut serializer)?;
+    Ok(())
+}
+
 #[doc(hidden)]
 pub struct SeqSerializer<'a, W: Write> {
     ser: &'a mut Serializer<W>,
@@ -429,7 +448,7 @@ impl<'a, W: Write> ser::SerializeStructVariant for &'a mut Serializer<W> {
 }
 
 #[cfg(test)]
-mod tests {
+mod serializer_tests {
     use super::*;
     use serde::ser::Serializer as _;
 
@@ -772,5 +791,25 @@ mod tests {
         let mut serializer = Serializer::new(Vec::new());
         f(&mut serializer).unwrap();
         String::from_utf8(serializer.writer).unwrap()
+    }
+}
+
+#[cfg(test)]
+mod to_xyz_tests {
+    #[test]
+    fn to_string() {
+        assert_eq!(super::to_string(&true).unwrap(), "true");
+    }
+
+    #[test]
+    fn to_vec() {
+        assert_eq!(super::to_vec(&true).unwrap(), b"true");
+    }
+
+    #[test]
+    fn to_writer() {
+        let mut buf = Vec::new();
+        super::to_writer(&mut buf, &true).unwrap();
+        assert_eq!(buf, b"true");
     }
 }

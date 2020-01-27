@@ -66,3 +66,6 @@ fn serialize_struct_variant() {
 )"
     );
 }
+
+#[test]
+fn test_complex_0() {}
