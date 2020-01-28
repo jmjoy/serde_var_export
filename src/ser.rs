@@ -448,6 +448,32 @@ impl<'a, W: Write> ser::SerializeStructVariant for &'a mut Serializer<W> {
 }
 
 #[cfg(test)]
+mod new_tests {
+    use super::*;
+    use crate::ser::SeqSerializer;
+
+    #[test]
+    fn new_serializer() {
+        let mut vec = Vec::new();
+        let serializer = Serializer::new(&mut vec);
+        assert_eq!(serializer.current_ident, 0);
+        assert_eq!(serializer.writer.as_ptr(), vec.as_ptr());
+    }
+
+    #[test]
+    fn new_seq_serializer() {
+        let mut vec = Vec::new();
+        let mut serializer = Serializer::new(&mut vec);
+        let mut seq_serializer = SeqSerializer::new(&mut serializer);
+        assert_eq!(seq_serializer.idx, 0);
+        assert_eq!(
+            seq_serializer.as_mut_writer().as_ptr(),
+            serializer.writer.as_ptr()
+        );
+    }
+}
+
+#[cfg(test)]
 mod serializer_tests {
     use super::*;
     use serde::ser::Serializer as _;
